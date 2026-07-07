@@ -1,0 +1,9 @@
+[project]
+name = "llm-evaluation"
+version = "0.1.0"
+description = "Local LLM evaluation harness for Ollama models, scored with rule-based checkers and tracked in MLflow"
+requires-python = ">=3.12"
+dependencies = [
+    "mlflow>=2.18",
+    "requests>=2.32",
+]
