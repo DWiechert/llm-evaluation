@@ -5,13 +5,16 @@ using rule-based/code scorers only (no LLM-as-judge), plus a flat CSV/SQLite
 export for your own analysis.
 
 Requires (run this on your machine with Ollama, not in a sandbox):
-    pip install mlflow requests --break-system-packages
+    uv sync
 
 Usage:
-    python3 mlflow_eval.py --models qwen3.5:9b llama3.1:8b qwen2.5-coder:7b
+    uv run mlflow_eval.py --models qwen3.5:9b llama3.1:8b qwen2.5-coder:7b
+
+    # Run only specific categories (flags are additive; default is --all):
+    uv run mlflow_eval.py --models qwen3.5:9b --basic --tools
 
 Then view results:
-    mlflow ui
+    uv run mlflow ui
     # open http://localhost:5000 and browse the "local-llm-eval" experiment
     # CSV/SQLite land in ./results/
 
@@ -63,7 +66,7 @@ try:
     from mlflow.entities import Feedback
     from mlflow.genai import scorer
 except ImportError:
-    print("mlflow is not installed. Run: pip install mlflow requests --break-system-packages")
+    print("mlflow is not installed. Run `uv sync`, then invoke this script with `uv run mlflow_eval.py ...`.")
     sys.exit(1)
 
 from eval_dataset import EVAL_DATASET
@@ -109,6 +112,15 @@ def get_vram_used_mb():
     except (FileNotFoundError, subprocess.TimeoutExpired, ValueError, IndexError):
         pass
     return None
+
+
+def unload_ollama_model(model_name):
+    """Best-effort `ollama stop` so a model doesn't sit in VRAM (and skew the
+    next model's vram_before baseline) once we're done evaluating it."""
+    try:
+        subprocess.run(["ollama", "stop", model_name], capture_output=True, text=True, timeout=15)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
 
 
 # --------------------------------------------------------------------------
@@ -229,6 +241,11 @@ def make_predict_fn(model_name, run_id):
     meta = get_model_metadata(model_name)
 
     def predict_fn(id, category, messages, tools=None):
+        # mlflow.genai.evaluate() calls predict_fn once outside a traced span
+        # (its "test with the first sample" pre-check) before the real, traced
+        # evaluation loop — skip tagging then to avoid a spurious warning.
+        if mlflow.get_current_active_span() is not None:
+            mlflow.update_current_trace(tags={"model": model_name, "category": category})
         payload = {"model": model_name, "messages": messages, "stream": False}
         if tools:
             payload["tools"] = tools
@@ -523,6 +540,17 @@ CATEGORY_CHECKERS = {
     "design": lambda content, tool_calls, exp: check_design(content, exp),
 }
 
+# Maps a CLI flag (e.g. --basic) to the category name used in eval_dataset.py.
+CATEGORY_FLAGS = {
+    "basic": "basic_questions",
+    "tools": "tool_usage",
+    "coding": "coding",
+    "finance": "finance",
+    "reasoning": "reasoning",
+    "instructions": "instruction_following",
+    "design": "design",
+}
+
 
 # --------------------------------------------------------------------------
 # Export: build flat rows from RUN_LOG + EVAL_DATASET expectations, using the
@@ -608,30 +636,45 @@ def main():
     ap.add_argument("--models", nargs="+", required=True, help="Ollama model tags to evaluate")
     ap.add_argument("--experiment", default="local-llm-eval", help="MLflow experiment name")
     ap.add_argument("--out", default="results", help="Output directory for CSV/SQLite export")
+    ap.add_argument("--all", action="store_true", help="Run every category (default if no category flag is given)")
+    for flag, category in CATEGORY_FLAGS.items():
+        ap.add_argument(f"--{flag}", action="store_true", help=f"Run only the '{category}' category (repeatable alongside other category flags)")
     args = ap.parse_args()
+
+    selected_categories = [category for flag, category in CATEGORY_FLAGS.items() if getattr(args, flag)]
+    if args.all or not selected_categories:
+        selected_categories = list(CATEGORY_SCORERS.keys())
 
     run_id = uuid.uuid4().hex[:12]
     print(f"Run ID: {run_id}")
+    print(f"Categories: {', '.join(selected_categories)}")
 
     mlflow.set_experiment(args.experiment)
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    for model in args.models:
-        predict_fn = make_predict_fn(model, run_id)
-        for category, scorers in CATEGORY_SCORERS.items():
-            subset = [row for row in EVAL_DATASET if row["inputs"]["category"] == category]
-            if not subset:
-                continue
-            print(f"\n=== {model} | {category} ({len(subset)} cases) ===")
-            with mlflow.start_run(run_name=f"{model}__{category}"):
-                mlflow.set_tag("model", model)
-                mlflow.set_tag("category", category)
+    # A single run for the whole process, so the MLflow Run ID stays uniform
+    # across every model/category instead of changing per iteration. Each
+    # individual model/category is still distinguishable via the "model" and
+    # "category" trace tags set in predict_fn (visible as Traces columns).
+    with mlflow.start_run(run_name=run_id):
+        mlflow.set_tag("run_id", run_id)
+        for model in args.models:
+            predict_fn = make_predict_fn(model, run_id)
+            for category, scorers in CATEGORY_SCORERS.items():
+                if category not in selected_categories:
+                    continue
+                subset = [row for row in EVAL_DATASET if row["inputs"]["category"] == category]
+                if not subset:
+                    continue
+                print(f"\n=== {model} | {category} ({len(subset)} cases) ===")
                 mlflow.genai.evaluate(
                     data=subset,
                     predict_fn=predict_fn,
                     scorers=scorers,
                 )
+            print(f"Unloading {model} from Ollama...")
+            unload_ollama_model(model)
 
     export_rows = build_export_rows()
     timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -643,7 +686,7 @@ def main():
     export_system_info_json(system_info, out_dir / f"system_info_{timestamp}.json")
     export_system_info_sqlite(system_info, db_path)
 
-    print("\nDone. Run `mlflow ui` and open http://localhost:5000 to browse results in detail.")
+    print("\nDone. Run `uv run mlflow ui` and open http://localhost:5000 to browse results in detail.")
     print(f"Every row in eval_results is tagged run_id={run_id} — join against system_info to compare across machines.")
 
 

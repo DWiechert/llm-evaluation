@@ -12,9 +12,14 @@ mlruns/
 mlartifacts/
 *.db
 
+# IntelliJ
+.idea/
+*.iml
+
 # Claude Code local settings (machine-specific permissions, not shared)
 # .claude/skills/ and everything else under .claude/ IS tracked intentionally.
-.claude/settings.local.json
+.claude/
+!.claude/skills/
 
 # OS
 .DS_Store

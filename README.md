@@ -39,6 +39,17 @@ runs across machines) also land in `./results/`.
 | `--models` | *(required)* | One or more Ollama model tags to evaluate |
 | `--experiment` | `local-llm-eval` | MLflow experiment name |
 | `--out` | `results` | Output directory for CSV/SQLite export |
+| `--all` | | Run every category (default when no category flag is given) |
+| `--basic` | | Run only `basic_questions` |
+| `--tools` | | Run only `tool_usage` |
+| `--coding` | | Run only `coding` |
+| `--finance` | | Run only `finance` |
+| `--reasoning` | | Run only `reasoning` |
+| `--instructions` | | Run only `instruction_following` |
+| `--design` | | Run only `design` |
+
+Category flags are additive, so `--basic --tools` runs both. Omitting all of them
+is equivalent to `--all`.
 
 ## What's scored, and how
 
