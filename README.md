@@ -25,12 +25,18 @@ uv run mlflow_eval.py --models ornith:9b llama3.1:8b qwen2.5-coder:7b
 Then browse results:
 
 ```bash
-uv run mlflow ui
+uv run mlflow_ui.py
 # open http://localhost:5000 and browse the "local-llm-eval" experiment
 ```
 
-Flat CSV, SQLite, and a system-info snapshot (CPU/GPU/RAM/Ollama version, for comparing
-runs across machines) also land in `./results/`.
+(`mlflow_ui.py` just wraps `mlflow ui --backend-store-uri sqlite:///results/mlflow.db`
+— plain `mlflow ui` defaults to a tracking DB at the repo root instead, which this
+project doesn't use.)
+
+Everything lands under `./results/` — nothing is written to the repo root:
+MLflow's own tracking DB (`mlflow.db`) and artifact store (`mlartifacts/`), plus a
+flat CSV, SQLite export, and a system-info snapshot (CPU/GPU/RAM/Ollama version, for
+comparing runs across machines).
 
 ### Options
 
@@ -50,6 +56,18 @@ runs across machines) also land in `./results/`.
 
 Category flags are additive, so `--basic --tools` runs both. Omitting all of them
 is equivalent to `--all`.
+
+### Reading the MLflow UI
+
+All models/categories from one script invocation share a single MLflow run (so the
+Run ID/name — a short run_id hex string — stays constant instead of changing per
+model). To tell results apart:
+
+- **Run list**: each run has `models` and `categories` tags summarizing what that
+  invocation covered — enable them via the Columns picker if they're hidden.
+- **Traces/Evaluation table**: every individual sample is tagged with `model` and
+  `category` — enable those columns to filter/sort/group per-model results instead
+  of only seeing aggregate scores.
 
 ## What's scored, and how
 
@@ -76,3 +94,4 @@ tokens/sec, and a best-effort VRAM delta via `nvidia-smi`.
   logs to MLflow, exports CSV/SQLite
 - `eval_dataset.py` — the eval cases (prompts, tool schemas, expected answers/test
   cases) consumed by `mlflow_eval.py`
+- `mlflow_ui.py` — launches `mlflow ui` pointed at `results/mlflow.db`

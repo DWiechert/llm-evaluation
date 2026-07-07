@@ -14,9 +14,10 @@ Usage:
     uv run mlflow_eval.py --models qwen3.5:9b --basic --tools
 
 Then view results:
-    uv run mlflow ui
+    uv run mlflow_ui.py
     # open http://localhost:5000 and browse the "local-llm-eval" experiment
-    # CSV/SQLite land in ./results/
+    # everything (CSV/SQLite export, MLflow's own tracking DB + artifacts)
+    # lives under ./results/ — nothing is written to the repo root
 
 What's captured and how honest each number is:
   - Runtime/latency: real, timed around each Ollama call in this script AND
@@ -613,6 +614,17 @@ def export_sqlite(rows, path):
     print(f"SQLite: {path} (table: eval_results)")
 
 
+def configure_mlflow(experiment_name, out_dir):
+    """Point MLflow's tracking DB and artifact store at out_dir instead of
+    letting it default to ./mlflow.db and ./mlruns/ at the repo root."""
+    mlflow.set_tracking_uri(f"sqlite:///{out_dir}/mlflow.db")
+    client = mlflow.tracking.MlflowClient()
+    if client.get_experiment_by_name(experiment_name) is None:
+        artifact_location = (out_dir / "mlartifacts").resolve().as_uri()
+        mlflow.create_experiment(experiment_name, artifact_location=artifact_location)
+    mlflow.set_experiment(experiment_name)
+
+
 def export_system_info_json(info, path):
     with open(path, "w") as f:
         json.dump(info, f, indent=2)
@@ -649,9 +661,9 @@ def main():
     print(f"Run ID: {run_id}")
     print(f"Categories: {', '.join(selected_categories)}")
 
-    mlflow.set_experiment(args.experiment)
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
+    configure_mlflow(args.experiment, out_dir)
 
     # A single run for the whole process, so the MLflow Run ID stays uniform
     # across every model/category instead of changing per iteration. Each
@@ -659,6 +671,8 @@ def main():
     # "category" trace tags set in predict_fn (visible as Traces columns).
     with mlflow.start_run(run_name=run_id):
         mlflow.set_tag("run_id", run_id)
+        mlflow.set_tag("models", ", ".join(args.models))
+        mlflow.set_tag("categories", ", ".join(selected_categories))
         for model in args.models:
             predict_fn = make_predict_fn(model, run_id)
             for category, scorers in CATEGORY_SCORERS.items():
@@ -686,7 +700,7 @@ def main():
     export_system_info_json(system_info, out_dir / f"system_info_{timestamp}.json")
     export_system_info_sqlite(system_info, db_path)
 
-    print("\nDone. Run `uv run mlflow ui` and open http://localhost:5000 to browse results in detail.")
+    print("\nDone. Run `uv run mlflow_ui.py` and open http://localhost:5000 to browse results in detail.")
     print(f"Every row in eval_results is tagged run_id={run_id} — join against system_info to compare across machines.")
 
 
