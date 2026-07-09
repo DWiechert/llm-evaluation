@@ -75,6 +75,10 @@ from eval_dataset import EVAL_DATASET
 OLLAMA_CHAT_URL = "http://localhost:11434/api/chat"
 OLLAMA_SHOW_URL = "http://localhost:11434/api/show"
 
+# Deterministic sampling for every model/category so comparisons reflect model
+# quality rather than differing Modelfile defaults (see issue #15).
+SAMPLING_OPTIONS = {"temperature": 0, "seed": 42}
+
 # Populated as the script runs; used both for the MLflow-side scorers and for
 # the flat CSV/SQLite export at the end.
 RUN_LOG = []
@@ -247,7 +251,7 @@ def make_predict_fn(model_name, run_id):
         # evaluation loop — skip tagging then to avoid a spurious warning.
         if mlflow.get_current_active_span() is not None:
             mlflow.update_current_trace(tags={"model": model_name, "category": category})
-        payload = {"model": model_name, "messages": messages, "stream": False}
+        payload = {"model": model_name, "messages": messages, "stream": False, "options": SAMPLING_OPTIONS}
         if tools:
             payload["tools"] = tools
 
