@@ -19,13 +19,13 @@ uv sync
 ## Usage
 
 ```bash
-uv run mlflow_eval.py --models ornith:9b llama3.1:8b qwen2.5-coder:7b
+uv run src/mlflow_eval.py --models ornith:9b llama3.1:8b qwen2.5-coder:7b
 ```
 
 Then browse results:
 
 ```bash
-uv run mlflow_ui.py
+uv run src/mlflow_ui.py
 # open http://localhost:5000 and browse the "local-llm-eval" experiment
 ```
 
@@ -42,7 +42,8 @@ comparing runs across machines).
 
 | Flag | Default | Description |
 |---|---|---|
-| `--models` | *(required)* | One or more Ollama model tags to evaluate |
+| `--config` | | Path to a `configs/*.yaml` eval suite (models + categories) — see below |
+| `--models` | *(required unless `--config` is given)* | One or more Ollama model tags to evaluate |
 | `--experiment` | `local-llm-eval` | MLflow experiment name |
 | `--out` | `results` | Output directory for CSV/SQLite export |
 | `--all` | | Run every category (default when no category flag is given) |
@@ -56,6 +57,42 @@ comparing runs across machines).
 
 Category flags are additive, so `--basic --tools` runs both. Omitting all of them
 is equivalent to `--all`.
+
+### Named eval-suite configs
+
+Instead of retyping a long `--models ... --basic --tools` invocation, define a
+suite once under `configs/*.yaml`:
+
+```yaml
+# configs/quick-smoke.yaml
+models:
+  - lfm2.5:8b
+categories:
+  - basic_questions
+  - tool_usage
+```
+
+```yaml
+# configs/full-nightly.yaml
+models:
+  - lfm2.5:8b
+  - qwen3.5:9b
+  - ornith:9b
+categories: all
+```
+
+`categories` must be `all` or a list drawn from the same category names used
+elsewhere (`basic_questions`, `tool_usage`, `coding`, `finance`, `reasoning`,
+`instruction_following`, `design`).
+
+```bash
+uv run src/mlflow_eval.py --config configs/quick-smoke.yaml
+```
+
+Any `--models` or category flag passed alongside `--config` overrides that
+part of the config rather than merging with it — e.g.
+`--config configs/quick-smoke.yaml --coding` runs quick-smoke's models against
+only the `coding` category.
 
 ### Reading the MLflow UI
 
@@ -90,8 +127,20 @@ tokens/sec, and a best-effort VRAM delta via `nvidia-smi`.
 
 ## Files
 
-- `mlflow_eval.py` — main entrypoint: runs the dataset against Ollama, scores it,
-  logs to MLflow, exports CSV/SQLite
-- `eval_dataset.py` — the eval cases (prompts, tool schemas, expected answers/test
-  cases) consumed by `mlflow_eval.py`
-- `mlflow_ui.py` — launches `mlflow ui` pointed at `results/mlflow.db`
+- `src/mlflow_eval.py` — main entrypoint: runs the dataset against Ollama, scores
+  it, logs to MLflow, exports CSV/SQLite
+- `src/eval_dataset.py` — the eval cases (prompts, tool schemas, expected
+  answers/test cases) consumed by `mlflow_eval.py`
+- `src/mlflow_ui.py` — launches `mlflow ui` pointed at `results/mlflow.db`
+- `configs/` — named eval-suite yaml files consumed via `--config` (see above)
+- `tests/` — pytest suite (see Development below)
+
+## Development
+
+Run the test suite (currently covers the `--config`/CLI override logic; no Ollama
+or MLflow server needed):
+
+```bash
+uv sync --group dev
+uv run pytest
+```

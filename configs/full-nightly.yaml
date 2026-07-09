@@ -1,0 +1,6 @@
+# Full sweep across every pulled model and every category.
+models:
+  - lfm2.5:8b
+  - qwen3.5:9b
+  - ornith:9b
+categories: all

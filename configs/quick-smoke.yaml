@@ -1,0 +1,6 @@
+# Fast sanity check: one small model, cheap deterministic categories only.
+models:
+  - lfm2.5:8b
+categories:
+  - basic_questions
+  - tool_usage

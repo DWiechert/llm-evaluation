@@ -8,13 +8,13 @@ Requires (run this on your machine with Ollama, not in a sandbox):
     uv sync
 
 Usage:
-    uv run mlflow_eval.py --models qwen3.5:9b llama3.1:8b qwen2.5-coder:7b
+    uv run src/mlflow_eval.py --models qwen3.5:9b llama3.1:8b qwen2.5-coder:7b
 
     # Run only specific categories (flags are additive; default is --all):
-    uv run mlflow_eval.py --models qwen3.5:9b --basic --tools
+    uv run src/mlflow_eval.py --models qwen3.5:9b --basic --tools
 
 Then view results:
-    uv run mlflow_ui.py
+    uv run src/mlflow_ui.py
     # open http://localhost:5000 and browse the "local-llm-eval" experiment
     # everything (CSV/SQLite export, MLflow's own tracking DB + artifacts)
     # lives under ./results/ — nothing is written to the repo root
@@ -61,13 +61,14 @@ import uuid
 from pathlib import Path
 
 import requests
+import yaml
 
 try:
     import mlflow
     from mlflow.entities import Feedback
     from mlflow.genai import scorer
 except ImportError:
-    print("mlflow is not installed. Run `uv sync`, then invoke this script with `uv run mlflow_eval.py ...`.")
+    print("mlflow is not installed. Run `uv sync`, then invoke this script with `uv run src/mlflow_eval.py ...`.")
     sys.exit(1)
 
 from eval_dataset import EVAL_DATASET
@@ -647,19 +648,71 @@ def export_system_info_sqlite(info, path):
     print(f"System info also written to {path} (table: system_info, join on run_id)")
 
 
-def main():
+# --------------------------------------------------------------------------
+# Named eval-suite configs (configs/*.yaml) — an alternative to retyping
+# long --models/--category invocations. CLI flags, if given, override the
+# config's values rather than merging with them.
+# --------------------------------------------------------------------------
+def load_eval_config(path):
+    with open(path) as f:
+        config = yaml.safe_load(f)
+
+    models = config.get("models")
+    if not models:
+        raise ValueError(f"{path}: 'models' must be a non-empty list")
+
+    categories = config.get("categories", "all")
+    if categories == "all":
+        categories = list(CATEGORY_SCORERS.keys())
+    else:
+        unknown = [c for c in categories if c not in CATEGORY_SCORERS]
+        if unknown:
+            raise ValueError(f"{path}: unknown categories {unknown} (valid: {list(CATEGORY_SCORERS.keys())})")
+
+    return {"models": models, "categories": categories}
+
+
+def build_arg_parser():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--models", nargs="+", required=True, help="Ollama model tags to evaluate")
+    ap.add_argument("--config", type=Path, help="Path to a configs/*.yaml eval suite (models + categories). CLI flags below override its values.")
+    ap.add_argument("--models", nargs="+", help="Ollama model tags to evaluate (required unless --config is given)")
     ap.add_argument("--experiment", default="local-llm-eval", help="MLflow experiment name")
     ap.add_argument("--out", default="results", help="Output directory for CSV/SQLite export")
     ap.add_argument("--all", action="store_true", help="Run every category (default if no category flag is given)")
     for flag, category in CATEGORY_FLAGS.items():
         ap.add_argument(f"--{flag}", action="store_true", help=f"Run only the '{category}' category (repeatable alongside other category flags)")
-    args = ap.parse_args()
+    return ap
 
-    selected_categories = [category for flag, category in CATEGORY_FLAGS.items() if getattr(args, flag)]
-    if args.all or not selected_categories:
-        selected_categories = list(CATEGORY_SCORERS.keys())
+
+def resolve_run_config(args, ap):
+    """Merge --config with CLI flags: any --models/category flag given on the
+    CLI overrides that part of the config rather than merging with it."""
+    cli_categories = [category for flag, category in CATEGORY_FLAGS.items() if getattr(args, flag)]
+
+    if args.config:
+        config = load_eval_config(args.config)
+        models = args.models or config["models"]
+        if args.all:
+            selected_categories = list(CATEGORY_SCORERS.keys())
+        elif cli_categories:
+            selected_categories = cli_categories
+        else:
+            selected_categories = config["categories"]
+    else:
+        if not args.models:
+            ap.error("--models is required unless --config is given")
+        models = args.models
+        selected_categories = cli_categories
+        if args.all or not selected_categories:
+            selected_categories = list(CATEGORY_SCORERS.keys())
+
+    return models, selected_categories
+
+
+def main():
+    ap = build_arg_parser()
+    args = ap.parse_args()
+    models, selected_categories = resolve_run_config(args, ap)
 
     run_id = uuid.uuid4().hex[:12]
     print(f"Run ID: {run_id}")
@@ -675,9 +728,9 @@ def main():
     # "category" trace tags set in predict_fn (visible as Traces columns).
     with mlflow.start_run(run_name=run_id):
         mlflow.set_tag("run_id", run_id)
-        mlflow.set_tag("models", ", ".join(args.models))
+        mlflow.set_tag("models", ", ".join(models))
         mlflow.set_tag("categories", ", ".join(selected_categories))
-        for model in args.models:
+        for model in models:
             predict_fn = make_predict_fn(model, run_id)
             for category, scorers in CATEGORY_SCORERS.items():
                 if category not in selected_categories:
@@ -704,7 +757,7 @@ def main():
     export_system_info_json(system_info, out_dir / f"system_info_{timestamp}.json")
     export_system_info_sqlite(system_info, db_path)
 
-    print("\nDone. Run `uv run mlflow_ui.py` and open http://localhost:5000 to browse results in detail.")
+    print("\nDone. Run `uv run src/mlflow_ui.py` and open http://localhost:5000 to browse results in detail.")
     print(f"Every row in eval_results is tagged run_id={run_id} — join against system_info to compare across machines.")
 
 

@@ -5,5 +5,14 @@ description = "Local LLM evaluation harness for Ollama models, scored with rule-
 requires-python = ">=3.12"
 dependencies = [
     "mlflow>=2.18",
+    "pyyaml>=6.0",
     "requests>=2.32",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
