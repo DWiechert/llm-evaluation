@@ -125,6 +125,22 @@ Every row also captures timing/throughput metrics pulled directly from Ollama's 
 response fields (not estimated): wall-clock latency, decode tokens/sec, prefill
 tokens/sec, and a best-effort VRAM delta via `nvidia-smi`.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    Dataset["Eval dataset<br/>(prompts + expected answers)"] --> Backend["Model backend<br/>(Ollama today)"]
+    Backend --> Scoring["Rule-based scoring<br/>(no LLM judge)"]
+    Scoring --> MLflow["MLflow run"]
+    Scoring --> CSV["CSV export"]
+    Scoring --> SQLite["SQLite export"]
+    Scoring --> SysInfo["System info"]
+```
+
+`Model backend` is Ollama-only today; `Outputs` is currently MLflow + CSV + SQLite +
+system info. Both are the spots meant to grow — more backends feeding in, more
+export formats fanning out — without changing the dataset or scoring stages.
+
 ## Files
 
 - `src/mlflow_eval.py` — main entrypoint: runs the dataset against Ollama, scores
