@@ -30,7 +30,9 @@ What's captured and how honest each number is:
     processes on your GPU will pollute it, and Ollama may keep a model loaded
     between calls, so "before" isn't always a clean zero baseline.
   - Model metadata (parameter_size, quantization_level): pulled directly from
-    Ollama's /api/show endpoint, cached per model.
+    Ollama's /api/show endpoint, cached per model. The model_digest tag
+    (sha256 of the pulled weights, from /api/tags) is also cached per model,
+    so re-pulling the same model tag with new weights doesn't look identical.
   - Cost: intentionally not included — these are local models with no metered
     per-token price, so a cost column would just be zero/meaningless.
   - basic_questions, finance, reasoning: deterministic checks against values
@@ -75,6 +77,7 @@ from datasets import CATEGORY_HASHES, DATASET_HASH, EVAL_DATASET
 
 OLLAMA_CHAT_URL = "http://localhost:11434/api/chat"
 OLLAMA_SHOW_URL = "http://localhost:11434/api/show"
+OLLAMA_TAGS_URL = "http://localhost:11434/api/tags"
 
 # Deterministic sampling for every model/category so comparisons reflect model
 # quality rather than differing Modelfile defaults (see issue #15).
@@ -92,7 +95,7 @@ _MODEL_META_CACHE = {}
 def get_model_metadata(model_name):
     if model_name in _MODEL_META_CACHE:
         return _MODEL_META_CACHE[model_name]
-    meta = {"parameter_size": None, "quantization_level": None, "family": None}
+    meta = {"parameter_size": None, "quantization_level": None, "family": None, "digest": None}
     try:
         resp = requests.post(OLLAMA_SHOW_URL, json={"model": model_name}, timeout=15)
         resp.raise_for_status()
@@ -102,6 +105,17 @@ def get_model_metadata(model_name):
         meta["family"] = details.get("family")
     except (requests.exceptions.RequestException, ValueError) as e:
         print(f"  (could not fetch metadata for {model_name}: {e})")
+    try:
+        # /api/show has no digest field; /api/tags lists it per locally-pulled
+        # model, so a re-pull of the same tag (new weights) is distinguishable.
+        resp = requests.get(OLLAMA_TAGS_URL, timeout=15)
+        resp.raise_for_status()
+        for entry in resp.json().get("models", []):
+            if entry.get("name") == model_name or entry.get("model") == model_name:
+                meta["digest"] = entry.get("digest")
+                break
+    except (requests.exceptions.RequestException, ValueError) as e:
+        print(f"  (could not fetch digest for {model_name}: {e})")
     _MODEL_META_CACHE[model_name] = meta
     return meta
 
@@ -254,6 +268,7 @@ def make_predict_fn(model_name, run_id):
             mlflow.update_current_trace(tags={
                 "model": model_name, "category": category,
                 "category_hash": CATEGORY_HASHES.get(category),
+                "model_digest": meta.get("digest"),
             })
         payload = {"model": model_name, "messages": messages, "stream": False, "options": SAMPLING_OPTIONS}
         if tools:
@@ -298,6 +313,7 @@ def make_predict_fn(model_name, run_id):
             "category_hash": CATEGORY_HASHES.get(category),
             "parameter_size": meta["parameter_size"],
             "quantization_level": meta["quantization_level"],
+            "model_digest": meta["digest"],
             "wall_seconds": wall_seconds,
             "total_duration_s": round(total_duration_ns / 1e9, 3) if total_duration_ns else None,
             "output_tokens": eval_count,
@@ -732,7 +748,12 @@ def main():
     # "category" trace tags set in predict_fn (visible as Traces columns).
     with mlflow.start_run(run_name=run_id):
         mlflow.set_tag("run_id", run_id)
-        mlflow.set_tag("models", ", ".join(models))
+        # digest suffix (short form) lets two runs of the "same" model tag be
+        # told apart at a glance if the underlying weights were re-pulled.
+        models_tag = ", ".join(
+            f"{m}:{(get_model_metadata(m)['digest'] or 'unknown')[:12]}" for m in models
+        )
+        mlflow.set_tag("models", models_tag)
         mlflow.set_tag("categories", ", ".join(selected_categories))
 
         mlflow.set_tag("dataset_hash", DATASET_HASH)

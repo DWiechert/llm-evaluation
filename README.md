@@ -101,10 +101,14 @@ Run ID/name — a short run_id hex string — stays constant instead of changing
 model). To tell results apart:
 
 - **Run list**: each run has `models` and `categories` tags summarizing what that
-  invocation covered — enable them via the Columns picker if they're hidden.
-- **Traces/Evaluation table**: every individual sample is tagged with `model` and
-  `category` — enable those columns to filter/sort/group per-model results instead
-  of only seeing aggregate scores.
+  invocation covered — enable them via the Columns picker if they're hidden. Each
+  entry in `models` is `<tag>:<digest short form>` (e.g. `lfm2.5:8b:9cf756159fc2`)
+  so two runs of the "same" model tag can be told apart at a glance if the
+  underlying weights were re-pulled between runs.
+- **Traces/Evaluation table**: every individual sample is tagged with `model`,
+  `category`, and `model_digest` (the full sha256 of the pulled model weights,
+  from Ollama's `/api/tags`) — enable those columns to filter/sort/group
+  per-model results.
 
 ## What's scored, and how
 
