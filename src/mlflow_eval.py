@@ -34,7 +34,7 @@ What's captured and how honest each number is:
   - Cost: intentionally not included — these are local models with no metered
     per-token price, so a cost column would just be zero/meaningless.
   - basic_questions, finance, reasoning: deterministic checks against values
-    computed with plain Python (see eval_dataset.py).
+    computed with plain Python (see src/datasets/).
   - tool_usage: structural check only (right tool name + required arg keys
     present) — does not validate that argument VALUES are correct.
   - coding: ACTUALLY EXECUTES the model's generated code against test cases
@@ -71,7 +71,7 @@ except ImportError:
     print("mlflow is not installed. Run `uv sync`, then invoke this script with `uv run src/mlflow_eval.py ...`.")
     sys.exit(1)
 
-from eval_dataset import CATEGORY_HASHES, DATASET_HASH, EVAL_DATASET
+from datasets import CATEGORY_HASHES, DATASET_HASH, EVAL_DATASET
 
 OLLAMA_CHAT_URL = "http://localhost:11434/api/chat"
 OLLAMA_SHOW_URL = "http://localhost:11434/api/show"
@@ -550,7 +550,7 @@ CATEGORY_CHECKERS = {
     "design": lambda content, tool_calls, exp: check_design(content, exp),
 }
 
-# Maps a CLI flag (e.g. --basic) to the category name used in eval_dataset.py.
+# Maps a CLI flag (e.g. --basic) to the category name used in src/datasets/.
 CATEGORY_FLAGS = {
     "basic": "basic_questions",
     "tools": "tool_usage",

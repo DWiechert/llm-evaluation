@@ -109,7 +109,7 @@ model). To tell results apart:
 ## What's scored, and how
 
 Every category is scored with deterministic, rule-based checkers — no LLM judge. See
-`eval_dataset.py` for the full dataset and `mlflow_eval.py` for the scorer implementations.
+`src/datasets/` for the full dataset and `mlflow_eval.py` for the scorer implementations.
 
 | Category | How it's scored |
 |---|---|
@@ -129,8 +129,8 @@ tokens/sec, and a best-effort VRAM delta via `nvidia-smi`.
 
 - `src/mlflow_eval.py` — main entrypoint: runs the dataset against Ollama, scores
   it, logs to MLflow, exports CSV/SQLite
-- `src/eval_dataset.py` — the eval cases (prompts, tool schemas, expected
-  answers/test cases) consumed by `mlflow_eval.py`
+- `src/datasets/` — the eval cases (prompts, tool schemas, expected
+  answers/test cases), one file per category, consumed by `mlflow_eval.py`
 - `src/mlflow_ui.py` — launches `mlflow ui` pointed at `results/mlflow.db`
 - `configs/` — named eval-suite yaml files consumed via `--config` (see above)
 - `tests/` — pytest suite (see Development below)
