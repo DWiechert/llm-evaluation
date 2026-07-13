@@ -21,6 +21,9 @@ per your preference). That means:
              not a grade.
 """
 
+import hashlib
+import json
+
 # ---- Finance expected values, computed directly (see comment for the math) ----
 # A = P(1+r/n)^(nt); P=10000, r=0.06, n=12, t=3
 COMPOUND_INTEREST_ANSWER = 11966.81
@@ -98,7 +101,7 @@ TOOLS = [
     },
 ]
 
-EVAL_DATASET = [
+BASIC_DATASET = [
     # ---------------- basic_questions ----------------
     {
         "inputs": {"id": "basic_questions_1", "category": "basic_questions", "messages": [
@@ -119,6 +122,9 @@ EVAL_DATASET = [
         "expectations": {"expected_substring": "404"},
     },
 
+]
+
+TOOL_DATASET = [
     # ---------------- tool_usage ----------------
     {
         "inputs": {"id": "tool_usage_1", "category": "tool_usage", "tools": TOOLS, "messages": [
@@ -139,6 +145,9 @@ EVAL_DATASET = [
         "expectations": {"expected_tool": "create_calendar_event", "required_args": ["title", "date"]},
     },
 
+]
+
+CODING_DATASET = [
     # ---------------- coding (executed, real pass/fail) ----------------
     {
         "inputs": {"id": "coding_1", "category": "coding", "messages": [
@@ -174,8 +183,9 @@ EVAL_DATASET = [
             ],
         },
     },
+]
 
-    # ---------------- finance (numeric, computed not guessed) ----------------
+FINANCE_DATASET = [
     {
         "inputs": {"id": "finance_1", "category": "finance", "messages": [
             {"role": "user", "content": (
@@ -203,7 +213,9 @@ EVAL_DATASET = [
         ]},
         "expectations": {"expected_number": BREAKEVEN_UNITS, "tolerance": 1.0},
     },
+]
 
+REASONING_DATASET = [
     # ---------------- reasoning (numeric, computed not guessed) ----------------
     {
         "inputs": {"id": "reasoning_1", "category": "reasoning", "messages": [
@@ -237,7 +249,9 @@ EVAL_DATASET = [
         ]},
         "expectations": {"expected_number": MIN_WEIGHINGS, "tolerance": 0.5},
     },
+]
 
+INSTRUCTION_DATASET = [
     # ---------------- instruction_following (structural, machine-checked) ----
     {
         "inputs": {"id": "instruction_following_1", "category": "instruction_following", "messages": [
@@ -280,7 +294,9 @@ EVAL_DATASET = [
             "reason_max_words": 20,
         },
     },
+]
 
+DESIGN_DATASET = [
     # ---------------- design (manual review — no ground truth) ----------------
     {
         "inputs": {"id": "design_1", "category": "design", "messages": [
@@ -304,3 +320,25 @@ EVAL_DATASET = [
         "expectations": {"review_only": True, "expected_concepts": ["foreign key", "history", "grid", "coordinate"]},
     },
 ]
+
+EVAL_DATASET = BASIC_DATASET + TOOL_DATASET + CODING_DATASET + FINANCE_DATASET + REASONING_DATASET + INSTRUCTION_DATASET + DESIGN_DATASET
+
+# ---- Version hashes, stamped into exported results so old/new rows scored ----
+# against different ground truth never look silently comparable (issue #8).
+CATEGORY_DATASETS = {
+    "basic_questions": BASIC_DATASET,
+    "tool_usage": TOOL_DATASET,
+    "coding": CODING_DATASET,
+    "finance": FINANCE_DATASET,
+    "reasoning": REASONING_DATASET,
+    "instruction_following": INSTRUCTION_DATASET,
+    "design": DESIGN_DATASET,
+}
+
+
+def _hash(data):
+    return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:10]
+
+
+DATASET_HASH = _hash(EVAL_DATASET)
+CATEGORY_HASHES = {category: _hash(dataset) for category, dataset in CATEGORY_DATASETS.items()}

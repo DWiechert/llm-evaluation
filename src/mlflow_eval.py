@@ -71,7 +71,7 @@ except ImportError:
     print("mlflow is not installed. Run `uv sync`, then invoke this script with `uv run src/mlflow_eval.py ...`.")
     sys.exit(1)
 
-from eval_dataset import EVAL_DATASET
+from eval_dataset import CATEGORY_HASHES, DATASET_HASH, EVAL_DATASET
 
 OLLAMA_CHAT_URL = "http://localhost:11434/api/chat"
 OLLAMA_SHOW_URL = "http://localhost:11434/api/show"
@@ -251,7 +251,10 @@ def make_predict_fn(model_name, run_id):
         # (its "test with the first sample" pre-check) before the real, traced
         # evaluation loop — skip tagging then to avoid a spurious warning.
         if mlflow.get_current_active_span() is not None:
-            mlflow.update_current_trace(tags={"model": model_name, "category": category})
+            mlflow.update_current_trace(tags={
+                "model": model_name, "category": category,
+                "category_hash": CATEGORY_HASHES.get(category),
+            })
         payload = {"model": model_name, "messages": messages, "stream": False, "options": SAMPLING_OPTIONS}
         if tools:
             payload["tools"] = tools
@@ -265,7 +268,7 @@ def make_predict_fn(model_name, run_id):
         except requests.exceptions.RequestException as e:
             RUN_LOG.append({
                 "run_id": run_id, "model": model_name, "id": id, "category": category,
-                "error": str(e),
+                "category_hash": CATEGORY_HASHES.get(category), "error": str(e),
             })
             return {"content": "", "tool_calls": None}
         wall_seconds = round(time.time() - wall_start, 3)
@@ -292,6 +295,7 @@ def make_predict_fn(model_name, run_id):
             "model": model_name,
             "id": id,
             "category": category,
+            "category_hash": CATEGORY_HASHES.get(category),
             "parameter_size": meta["parameter_size"],
             "quantization_level": meta["quantization_level"],
             "wall_seconds": wall_seconds,
@@ -730,6 +734,9 @@ def main():
         mlflow.set_tag("run_id", run_id)
         mlflow.set_tag("models", ", ".join(models))
         mlflow.set_tag("categories", ", ".join(selected_categories))
+
+        mlflow.set_tag("dataset_hash", DATASET_HASH)
+
         for model in models:
             predict_fn = make_predict_fn(model, run_id)
             for category, scorers in CATEGORY_SCORERS.items():
