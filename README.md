@@ -144,3 +144,6 @@ or MLflow server needed):
 uv sync --group dev
 uv run pytest
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to add a new question to an
+existing category, or add a new category entirely.
